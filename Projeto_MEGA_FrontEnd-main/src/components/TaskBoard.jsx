@@ -4,9 +4,13 @@ import AddList from './AddList'; // Will be used again
 import ListColumn from './ListColumn';
 import { DragDropContext } from 'react-beautiful-dnd'; // Droppable for columns might be needed if columns themselves are draggable
 import { Plus } from 'react-feather'; // For Add List button
+import loginVideo from '../assets/logo_animation.mp4';
 
 // Define the base URL for the API
-const API_URL = 'http://localhost:3000/api';
+const API_URL =  import.meta.env.VITE_API_URL || 'http://localhost:3000/api'; // Adjust based on your backend setup
+console.log("API URL:", API_URL); // Debugging line to check the API URL
+
+
 
 export default function TaskBoard() {
     const [tasks, setTasks] = useState([]);
@@ -14,6 +18,7 @@ export default function TaskBoard() {
     const [listTitles, setListTitles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [showVideo, setShowVideo] = useState(true); // State to control video visibility
 
     // Function to fetch tasks from the backend
     const fetchTasks = useCallback(async () => {
@@ -232,7 +237,7 @@ export default function TaskBoard() {
     }, {});
 
     return (
-        <DragDropContext onDragEnd={onDragEnd}>
+            <DragDropContext onDragEnd={onDragEnd}>
             <div className="flex space-x-4 p-4 overflow-x-auto h-full items-start">
                 {listTitles.map((listTitle) => (
                     <ListColumn
@@ -251,7 +256,18 @@ export default function TaskBoard() {
                     <AddList onAddList={handleAddList} />
                 </div>
             </div>
-        </DragDropContext>
+            {showVideo && (
+                <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
+                    <video
+                        src={loginVideo}
+                        autoPlay
+                        onEnded={() => setShowVideo(false)}
+                        className="w-80 h-auto rounded-xl shadow-lg"
+                    />
+                </div>
+            )}
+            </DragDropContext>
+
     );
 }
 

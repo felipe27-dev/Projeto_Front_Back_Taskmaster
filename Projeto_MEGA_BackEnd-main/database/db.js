@@ -1,15 +1,18 @@
 const { Pool } = require("pg");
-
+require("dotenv").config();
 // Configuração da conexão com o banco de dados PostgreSQL
 // Utiliza as informações fornecidas pelo usuário
+const connectionString = process.env.DATABASE_URL || "postgres://postgres:facom@localhost:5432/controle_tarefas";
+if (!connectionString) {
+  console.error("❌ Erro: DATABASE_URL não está definida no arquivo .env");
+  exit(1);
+}
 const pool = new Pool({
-  user: "postgres", // Usuário do PostgreSQL
-  host: "localhost", // Host do banco (geralmente localhost)
-  database: "controle_tarefas", // Nome do banco de dados
-  password: "facom", // Senha do usuário
-  port: 5432, // Porta padrão do PostgreSQL
+  connectionString: connectionString, // String de conexão do banco de dados
+  ssl: {
+    rejectUnauthorized: false, // Desativa a verificação de certificado SSL (não recomendado para produção)
+  },
 });
-
 // Testa a conexão (opcional, mas bom para depuração)
 pool.connect((err, client, release) => {
   if (err) {

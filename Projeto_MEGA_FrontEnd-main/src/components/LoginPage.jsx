@@ -1,32 +1,15 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import meuIcone from '../assets/taskmaster_logo_symbol-nobg.png';
-import loginVideo from '../assets/logo_animation.mp4'; // seu vídeo aqui
 
 const LoginPage = () => {
     const navigate = useNavigate();
-    const [showVideo, setShowVideo] = useState(false);
+
 
     const handleLogin = () => {
-        setShowVideo(true); // mostra o vídeo
+        navigate("/app"); 
     };
 
-    const handleVideoEnd = () => {
-        navigate("/app"); // navega após o vídeo terminar
-    };
-
-    if (showVideo) {
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-black">
-                <video
-                    src={loginVideo}
-                    autoPlay
-                    onEnded={handleVideoEnd}
-                    className="w-80 h-auto rounded-xl shadow-lg"
-                />
-            </div>
-        );
-    }
 
     return (
         <div className="bg-gradient-to-br from-[#D8432D] via-[#7A1B5E] to-[#3F0C56] min-h-screen flex items-center justify-center">
