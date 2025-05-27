@@ -1,20 +1,55 @@
 const pool = require("../database/db");
 
-// GET /api/tasks - Busca todas as tarefas
 const getTasks = async (req, res) => {
   console.log("➡️ GET /api/tasks chamado");
   try {
-    // Seleciona todas as colunas, incluindo list_title e o status simplificado
-    // Ordena por lista e depois por data de criação para uma visualização mais organizada
-    const result = await pool.query("SELECT * FROM tasks ORDER BY list_title, criada_em DESC");
-    console.log("✅ Tarefas retornadas com sucesso");
+    // Extrair parâmetros de filtro da query string
+    const { search, status, priority } = req.query;
+    console.log("📥 Parâmetros de filtro recebidos:", { search, status, priority });
+
+    // Iniciar a construção da query
+    let query = "SELECT * FROM tasks";
+    const queryParams = [];
+    const conditions = [];
+
+    // Adicionar condição de busca por texto (no título ou descrição)
+    if (search && search.trim() !== "") {
+      conditions.push("(LOWER(title) LIKE $" + (queryParams.length + 1) + " OR LOWER(description) LIKE $" + (queryParams.length + 1) + ")");
+      queryParams.push(`%${search.toLowerCase()}%`);
+    }
+
+    // Adicionar condição de filtro por status
+    if (status && status.trim() !== "") {
+      conditions.push("status = $" + (queryParams.length + 1));
+      queryParams.push(status);
+    }
+
+    // Adicionar condição de filtro por prioridade
+    if (priority && priority.trim() !== "") {
+      conditions.push("priority = $" + (queryParams.length + 1));
+      queryParams.push(priority);
+    }
+
+    // Adicionar condições à query, se houver
+    if (conditions.length > 0) {
+      query += " WHERE " + conditions.join(" AND ");
+    }
+
+    // Adicionar ordenação
+    query += " ORDER BY list_title, criada_em DESC";
+
+    console.log("🔍 Query de filtro:", query);
+    console.log("🔢 Parâmetros:", queryParams);
+
+    // Executar a query
+    const result = await pool.query(query, queryParams);
+    console.log(`✅ ${result.rows.length} tarefas retornadas com sucesso`);
     res.status(200).json(result.rows);
   } catch (err) {
     console.error("❌ Erro ao buscar tarefas:", err);
     res.status(500).json({ message: "Erro no servidor ao buscar tarefas" });
   }
 };
-
 // POST /api/tasks - Cria uma nova tarefa
 const createTask = async (req, res) => {
   console.log("➡️ POST /api/tasks chamado");

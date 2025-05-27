@@ -1,85 +1,111 @@
-// src/components/TaskBoard.jsx
+// src/components/TaskBoard.jsx (Corrigido - Loop de Renderização)
 import React, { useState, useEffect, useCallback } from 'react';
-import AddList from './AddList'; // Will be used again
+import AddList from './AddList';
 import ListColumn from './ListColumn';
-import { DragDropContext } from 'react-beautiful-dnd'; // Droppable for columns might be needed if columns themselves are draggable
-import { Plus } from 'react-feather'; // For Add List button
+import { DragDropContext } from 'react-beautiful-dnd';
+import { Plus } from 'react-feather';
 import loginVideo from '../assets/logo_animation.mp4';
 
-// Define the base URL for the API
-const API_URL =  import.meta.env.VITE_API_URL || 'http://localhost:3000/api'; // Adjust based on your backend setup
-console.log("API URL:", API_URL); // Debugging line to check the API URL
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+console.log("API URL:", API_URL);
 
-
-
-export default function TaskBoard() {
+export default function TaskBoard({ currentSearchTerm, currentActiveFilters, isSearching, sidebarCollapsed }) {
     const [tasks, setTasks] = useState([]);
-    // State to manage the distinct list titles, derived from tasks or managed separately
     const [listTitles, setListTitles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [showVideo, setShowVideo] = useState(true); // State to control video visibility
+    const [showVideo, setShowVideo] = useState(true);
 
-    // Function to fetch tasks from the backend
+    const buildFilterUrl = useCallback(() => {
+        const params = new URLSearchParams();
+        if (currentSearchTerm && currentSearchTerm.trim() !== '') {
+            params.append('search', currentSearchTerm);
+        }
+        if (currentActiveFilters.status) {
+            params.append('status', currentActiveFilters.status);
+        }
+        if (currentActiveFilters.priority) {
+            params.append('priority', currentActiveFilters.priority);
+        }
+        const queryString = params.toString();
+        return queryString ? `${API_URL}/tasks?${queryString}` : `${API_URL}/tasks`;
+    }, [currentSearchTerm, currentActiveFilters]);
+
+    // fetchTasks agora depende apenas de buildFilterUrl (que depende dos filtros)
+    // Removido listTitles da dependência para evitar loop
     const fetchTasks = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
-            const response = await fetch(`${API_URL}/tasks`);
+            const url = buildFilterUrl();
+            console.log("🔍 Buscando tarefas com URL:", url);
+            const response = await fetch(url);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
             const fetchedTasks = Array.isArray(data) ? data : [];
+            console.log(`✅ ${fetchedTasks.length} tarefas encontradas`);
             setTasks(fetchedTasks);
 
-            // Derive unique list titles from fetched tasks, ensure 'Backlog' is present if no tasks exist
+            // Atualiza listTitles usando a forma funcional para não precisar de listTitles como dependência
             const uniqueTitles = [...new Set(fetchedTasks.map(task => task.list_title))];
-            if (uniqueTitles.length === 0) {
-                setListTitles(['Backlog']); // Default list if empty
-            } else {
-                // Sort titles alphabetically, or maintain a specific order if needed later
-                setListTitles(uniqueTitles.sort());
-            }
+            setListTitles(prevListTitles => {
+                const currentTitles = new Set(prevListTitles);
+                uniqueTitles.forEach(title => currentTitles.add(title));
+                // Garante que 'Backlog' exista se não houver títulos
+                if (currentTitles.size === 0) {
+                    currentTitles.add('Backlog');
+                }
+                return [...currentTitles].sort();
+            });
 
         } catch (e) {
             console.error("Failed to fetch tasks:", e);
-            setError("Falha ao carregar tarefas. Verifique se o backend está rodando.");
+            setError("Falha ao carregar tarefas. Verifique a conexão ou o backend."); 
             setTasks([]);
-            setListTitles(['Backlog']); // Default list on error
+            // Em caso de erro, garante que 'Backlog' exista se não houver títulos
+            setListTitles(prev => prev.length === 0 ? ['Backlog'] : prev);
         } finally {
             setLoading(false);
         }
-    }, []);
+    // Removido listTitles das dependências
+    }, [buildFilterUrl]); 
 
-    // Fetch tasks when the component mounts
+    // Busca inicial - Depende de fetchTasks. fetchTasks só muda se buildFilterUrl mudar (filtros mudarem)
+    // Este hook agora só roda na montagem inicial e se os filtros mudarem (o que é tratado pelo outro useEffect)
+    // Para rodar apenas na montagem, podemos remover a dependência, mas é mais seguro mantê-la.
     useEffect(() => {
+        console.log("Effect: Busca inicial ou fetchTasks mudou");
         fetchTasks();
     }, [fetchTasks]);
 
-    // --- Generic API Update Function --- //
+    // Busca quando filtros mudam (isSearching se torna false)
+    // Depende de isSearching e fetchTasks. Se fetchTasks mudar (devido a buildFilterUrl), busca novamente.
+    useEffect(() => {
+        // Só busca se isSearching for explicitamente false (debounce terminou)
+        if (isSearching === false) {
+            console.log("Effect: isSearching é false, buscando tarefas...");
+            fetchTasks();
+        }
+    }, [isSearching, fetchTasks]);
+
+    // --- Funções de Manipulação de Tarefas (sem alterações significativas) --- 
     const handleUpdateTask = async (taskId, updatedData) => {
-        // Optimistic UI update
         const originalTasks = tasks;
         setTasks(prevTasks =>
             prevTasks.map(task =>
                 task.id === taskId ? { ...task, ...updatedData } : task
             )
         );
-
         try {
             const response = await fetch(`${API_URL}/tasks/${taskId}`, {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updatedData),
             });
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             const updatedTaskFromServer = await response.json();
-            // Update local state with confirmed data from server
             setTasks(prevTasks =>
                 prevTasks.map(task => (task.id === taskId ? updatedTaskFromServer : task))
             );
@@ -87,174 +113,127 @@ export default function TaskBoard() {
         } catch (e) {
             console.error("Failed to update task:", e);
             setError("Falha ao atualizar tarefa. Revertendo alteração.");
-            // Revert optimistic update on failure
             setTasks(originalTasks);
             return null;
         }
     };
 
-    // --- Specific Action Handlers --- //
-
-    // Add a new task (Card) to a specific list
     const handleAddCard = async (listTitle, taskData) => {
         if (!taskData || !taskData.title || !taskData.title.trim()) return;
-
-        const newTaskData = {
-            ...taskData,
-            list_title: listTitle, // Assign to the correct list
-            status: 'To Do' // Default status for new tasks
-        };
-
+        const newTaskData = { ...taskData, list_title: listTitle, status: 'To Do' };
         try {
             const response = await fetch(`${API_URL}/tasks`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(newTaskData),
             });
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             const createdTask = await response.json();
             setTasks(prevTasks => [...prevTasks, createdTask]);
-            // If the list was newly created and empty, ensure its title is added
-            if (!listTitles.includes(listTitle)) {
-                setListTitles(prev => [...prev, listTitle].sort());
-            }
+            // Atualiza títulos usando forma funcional
+            setListTitles(prev => {
+                if (!prev.includes(listTitle)) {
+                    return [...prev, listTitle].sort();
+                }
+                return prev;
+            });
         } catch (e) {
             console.error("Failed to create task:", e);
             setError("Falha ao criar tarefa.");
         }
     };
 
-    // Delete a task (Card)
     const handleDeleteCard = async (taskId) => {
         const originalTasks = tasks;
-        // Optimistic UI update
         setTasks(prevTasks => prevTasks.filter(task => task.id !== taskId));
-
         try {
-            const response = await fetch(`${API_URL}/tasks/${taskId}`, {
-                method: 'DELETE',
-            });
-            if (!response.ok && response.status !== 404) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            // If successful, state is already updated
-            // Check if the list becomes empty and remove title if needed (optional)
-            // const deletedTask = originalTasks.find(t => t.id === taskId);
-            // if (deletedTask) {
-            //     const remainingTasksInList = originalTasks.filter(t => t.id !== taskId && t.list_title === deletedTask.list_title);
-            //     if (remainingTasksInList.length === 0 && listTitles.length > 1) { // Don't remove the last list
-            //         setListTitles(prev => prev.filter(title => title !== deletedTask.list_title));
-            //     }
-            // }
+            const response = await fetch(`${API_URL}/tasks/${taskId}`, { method: 'DELETE' });
+            if (!response.ok && response.status !== 404) throw new Error(`HTTP error! status: ${response.status}`);
+            // Opcional: Remover título da lista se ficar vazia (requer lógica mais complexa)
         } catch (e) {
             console.error("Failed to delete task:", e);
             setError("Falha ao deletar tarefa. Revertendo alteração.");
-            setTasks(originalTasks); // Revert UI update
+            setTasks(originalTasks);
         }
     };
 
-    // Toggle task status ('To Do' <-> 'Done')
     const handleToggleTaskStatus = async (taskId, currentStatus) => {
         const newStatus = currentStatus === 'To Do' ? 'Done' : 'To Do';
         handleUpdateTask(taskId, { status: newStatus });
     };
 
-    // Add a new list (Column)
     const handleAddList = (newListTitle) => {
         if (!newListTitle || !newListTitle.trim()) return;
         const normalizedTitle = newListTitle.trim();
-        if (!listTitles.includes(normalizedTitle)) {
-            setListTitles(prev => [...prev, normalizedTitle].sort());
-            // Optionally, create a placeholder task or call a backend endpoint if managing lists separately
-        } else {
+        // Atualiza títulos usando forma funcional
+        setListTitles(prev => {
+            if (!prev.includes(normalizedTitle)) {
+                return [...prev, normalizedTitle].sort();
+            }
             alert(`Lista "${normalizedTitle}" já existe.`);
-        }
+            return prev;
+        });
     };
 
-    // --- Drag and Drop Logic --- //
     const onDragEnd = (result) => {
         const { source, destination, draggableId } = result;
-
-        if (!destination) return; // Dropped outside
-
-        // Extract task ID (assuming format `card-${id}`)
+        if (!destination) return;
         const taskId = parseInt(draggableId.replace('card-', ''), 10);
         const task = tasks.find(t => t.id === taskId);
-
         if (!task) return;
-
         const sourceListTitle = source.droppableId;
         const destinationListTitle = destination.droppableId;
-
-        // --- Reordering within the same list --- //
         if (sourceListTitle === destinationListTitle) {
-            if (source.index === destination.index) return; // Dropped in the same place
-
+            if (source.index === destination.index) return;
             const tasksInList = tasks.filter(t => t.list_title === sourceListTitle);
             const [reorderedTask] = tasksInList.splice(source.index, 1);
             tasksInList.splice(destination.index, 0, reorderedTask);
-
-            // Update the main tasks state preserving order
             const otherTasks = tasks.filter(t => t.list_title !== sourceListTitle);
             setTasks([...otherTasks, ...tasksInList]);
-            // Note: Persisting order within a list would require an 'order' field in the DB/API
             return;
         }
-
-        // --- Moving to a different list --- //
-        // Optimistic UI update:
         setTasks(prevTasks =>
             prevTasks.map(t =>
                 t.id === taskId ? { ...t, list_title: destinationListTitle } : t
             )
         );
-
-        // API call to update list_title
         handleUpdateTask(taskId, { list_title: destinationListTitle });
-        // Status remains unchanged when moving lists
     };
 
-    // --- Rendering Logic --- //
-
+    // --- Rendering Logic (sem alterações) --- //
     if (loading) {
-        return <div className="p-4 text-center">Carregando tarefas...</div>;
+        return <div className="p-4 text-center text-slate-400">Carregando tarefas...</div>;
     }
-
     if (error) {
-        return <div className="p-4 text-center text-red-500">{error}</div>;
+        return <div className="p-4 text-center text-red-400">{error}</div>;
     }
-
-    // Group tasks by list_title for rendering columns
+    const hasActiveSearch = currentSearchTerm || currentActiveFilters.status || currentActiveFilters.priority;
+    if (!loading && !error && tasks.length === 0 && hasActiveSearch) {
+        return <div className="p-4 text-center text-slate-400">Nenhuma tarefa encontrada com os filtros aplicados.</div>;
+    }
     const tasksByList = listTitles.reduce((acc, title) => {
         acc[title] = tasks.filter(task => task.list_title === title);
-        // Optionally sort tasks within each list here (e.g., by creation date or a specific order field)
-        // acc[title].sort((a, b) => new Date(a.criada_em) - new Date(b.criada_em)); // Example sort
         return acc;
     }, {});
 
     return (
-            <DragDropContext onDragEnd={onDragEnd}>
+        <DragDropContext onDragEnd={onDragEnd}>
             <div className="flex space-x-4 p-4 overflow-x-auto h-full items-start">
                 {listTitles.map((listTitle) => (
                     <ListColumn
                         key={listTitle}
-                        // Pass list title and the filtered tasks for this list
                         list={{ id: listTitle, title: listTitle, cards: tasksByList[listTitle] || [] }}
-                        // Pass API handlers
                         onAddCard={(taskData) => handleAddCard(listTitle, taskData)}
                         onDeleteCard={handleDeleteCard}
-                        onToggleTaskStatus={handleToggleTaskStatus} // Pass the toggle handler
-                        // onDeleteList could be added here if list deletion is implemented
+                        onToggleTaskStatus={handleToggleTaskStatus}
                     />
                 ))}
-                {/* Component/Button to add a new list */}
-                <div className="flex-shrink-0 w-72 pt-1"> {/* Align with top of columns */} 
-                    <AddList onAddList={handleAddList} />
-                </div>
+                {/* Renderiza AddList apenas se houver títulos ou se não estiver vazio inicialmente */}
+                {(listTitles.length > 0 || tasks.length === 0) && (
+                    <div className="flex-shrink-0 w-72 pt-1">
+                        <AddList onAddList={handleAddList} />
+                    </div>
+                )}
             </div>
             {showVideo && (
                 <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
@@ -266,8 +245,6 @@ export default function TaskBoard() {
                     />
                 </div>
             )}
-            </DragDropContext>
-
+        </DragDropContext>
     );
 }
-
